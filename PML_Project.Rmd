@@ -1,0 +1,141 @@
+---
+title: "Practical Machine Learning Project"
+author: "BHANU"
+date: "Jan 14,2017"
+output: pdf_document
+---
+## Prediction Assignment
+
+### Background
+Now a days with devices like JawboneUp, NikeFuelBand, and Fitbitit it is very easy & relatively inexpensive to collect a large amount of data about personal activity. In many cases enthusiasts who use these devices to find patterns in their behaviour only quantify how much activity they are doing and not how effectively they are doing it.   
+The theme of the project is to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways.The five ways are exactly according to the specification (Class A), throwing the elbows to the front (Class B), lifting the dumbbell only halfway (Class C), lowering the dumbbell only halfway (Class D) and throwing the hips to the front (Class E). Only Class A corresponds to correct performance. The goal of this project is to predict the manner in which they did the exercise, i.e., Class A to E. 
+
+### Data
+The training data for this project are available here: https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+The test data are available here: https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+The data for this project come from this source: http://groupware.les.inf.puc-rio.br/har.
+
+### Goal
+The goal of your project is to predict the manner in which they did the exercise. 
+
+### Preparing R packages  
+
+```{r, message=FALSE}
+library(caret)
+library(rpart)
+library(rpart.plot)
+library(RColorBrewer)
+library(rattle)
+library(randomForest)
+library(knitr)
+library(AppliedPredictiveModeling)
+```
+
+#### Loading Data
+```{r}
+set.seed(12345)
+
+train_url <- "http://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+test_url <- "http://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+
+training_data <- read.csv(url(train_url), na.strings=c("NA","#DIV/0!",""))
+testing_data <- read.csv(url(test_url), na.strings=c("NA","#DIV/0!",""))
+
+```  
+
+The entire training data consists 19622 rows of observations and 158 features .While the testing data has 20 rows and the same 158 features. There is one column of target outcome named `classe`.   
+
+### Data Cleaning
+
+Removing 1st column of training data set(Serial numbers)
+```{r}
+training_data<-training_data[c(-1)]
+```
+Removing features with  near zero variance as they have little impact in the variation of outcome.
+```{r}
+nzv <- nearZeroVar(training_data, saveMetrics=TRUE)
+training_data <- training_data[,nzv$nzv==FALSE]
+```
+Now, we remove the features that are having NA value more than 40% of the time.
+```{r}
+training_1 <- training_data
+for(i in 1:length(training_data)) {
+  if( sum( is.na( training_data[, i] ) ) /nrow(training_data) >= .41) {
+        for(j in 1:length(training_1)) {
+            if( length( grep(names(training_data[i]), names(training_1)[j]) ) == 1)  {
+                training_1 <- training_1[ , -j]
+            }   
+        } 
+    }
+}
+
+training_data <- training_1
+rm(training_1)
+
+```
+Removing features(2nd,3rd,4th columns) that have lesser predicting power.
+```{r}
+training_data <- training_data[, -c(2:3)]
+```
+Transform the testing data set
+```{r}
+k <- colnames(training_data[,c(-56)])
+testing_data<-testing_data[k]
+```
+
+### Data Partitioning
+We split the cleaned training set training_data into a training set (70%) for prediction and a cross validation set (30%) for cross validation.
+```{r}
+set.seed(9999)
+TrainData <- createDataPartition(training_data$classe, p=0.6, list=FALSE)
+Training_train <- training_data[TrainData, ]
+Validation_train <- training_data[-TrainData, ]
+dim(Training_train); dim(Validation_train)
+
+```  
+
+#### PREDICTION ALGORITHMS
+
+### PREDICTION USING DECISION TREES
+
+First we use decision tree algorithm to obtain model on Training set and predict for cross validation set.
+```{r}
+set.seed(9999)
+model1 <- rpart(classe ~ ., data=Training_train, method="class")
+print(model1,digits=3)
+fancyRpartPlot(model1)
+
+prediction1 <- predict(model1, Validation_train, type = "class")
+conmat <- confusionMatrix(prediction1, Validation_train$classe)
+conmat
+accuracy_conmat <- conmat$overall[1]
+plot(conmat$table, col = conmat$byClass, main = paste("Decision Tree Confusion Matrix: Accuracy =", round(conmat$overall['Accuracy'], 3)))
+
+```
+From the confusion matrix, the accuracy is 0.83, and so the out-of-sample error rate is 0.17.
+### PREDICTION USING RANDOM FORESTS
+We now use random forest algorithm to obtain model on Training set and predict for cross validation set. 
+```{r}
+set.seed(9999)
+model2 <- randomForest(classe ~ ., data=Training_train,method = "class")
+print(model2,digits=3)
+prediction2 <- predict(model2, Validation_train, type = "class")
+conmat2 <- confusionMatrix(prediction2, Validation_train$classe)
+conmat2
+plot(conmat2$table, col = conmat2$byClass, main = paste("Random Forest Confusion Matrix: Accuracy =", round(conmat2$overall['Accuracy'], 3)))
+```
+From the confusion matrix, the accuracy is 0.997, and so the out-of-sample error is 0.003.
+
+### PREDICTION ON TEST SET
+
+Since accuracy obtained by Random forests algorithm is very high compared to decision trees algorithm & out-of-sample error is low(0.003 against 0.17), we now use ***model2*** to predict the `classe` for our test set.
+```{r}
+
+common <- intersect(names(Training_train), names(testing_data)) 
+for (p in common) { 
+  if (class(Training_train[[p]]) == "factor") { 
+    levels(testing_data[[p]]) <- levels(Training_train[[p]]) 
+  } 
+}
+predict(model2, testing_data)
+```
